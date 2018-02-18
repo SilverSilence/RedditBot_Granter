@@ -1,30 +1,13 @@
-import shutil
 import urllib
 import requests
 import praw
 import time
 import config
 import re
-import urllib3
 import urljoin
-import selenium
 from selenium import webdriver
-from bs4 import BeautifulSoup
 import collections
 import datetime
-
-
-# This is simple collection of functions to prevent reddit bots from:
-# 1. replying twice to same summon
-# 2. prevent chain of summons
-# 3. have limit on number of replies per submission
-
-# Note: See TODO and make according changes
-# Note: You can use reply function like this: post_reply(comment-content,praw-comment-object)
-# Note: is_summon_chain returns True if grandparent comment is bot's own
-# Note: comment_limit_reached returns True if current will be 5th reply in same thread, resets on process restart
-# Note: don't forget to decalre `submissioncount = collections.Counter()` before starting your main loop
-# Note: Here, r = praw.Reddit('unique client identifier')
 
 def is_summon_chain(post):
     if not post.is_root:
@@ -134,7 +117,6 @@ def run_bot(r):
     to_today = datetime.datetime.now().timestamp()
     from_yesterday = to_today - 24 * 60 * 60 * 60
     sub = r.subreddit("all").top("day")
-    # subm = sub.submissions
     for submission in sub:
         submission.comments.replace_more(limit=0)
         for comment in submission.comments.list():
@@ -147,7 +129,7 @@ def run_bot(r):
                     query = make_query(terms)
                     src = get_image_src("{0}{1}".format(BING, query))
                     content = "Your wish shall be granted! [Here]({0}) you find what you desire: {1}.".format(src, terms)
-                    post_reply(content, cm_parent)
+                    post_reply(content, cm_parent) #Doesn't comment if you already have
                     print("Comment succesful.")
         print("Done with comments in: " + submission.title)
     print("Done with sumbission stream.")
@@ -165,16 +147,10 @@ def get_image_src(url):
     time.sleep(1)
     return img_tag.get_attribute("src")
 
-
-
-# GOOGLE = "https://images.google.com/?q"
 BING = "https://www.bing.com/images/search?"
 BING_BUTTON_ID = "sb_form_go"
 WEBBROWSER = webdriver.Chrome()
 FOCUS_ID = "iol_imw"
-bing_image_list_id = "mmComponent_images_1"
-# google_id = "_fZl"
-
 r = bot_login()
 submissioncount = collections.Counter()
 while True:
