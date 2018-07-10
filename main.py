@@ -6,25 +6,6 @@ import re
 from selenium import webdriver
 import collections
 
-def is_already_done(post):
-    done = False
-    numofr = 0
-    try:
-        repliesarray = post.replies
-        numofr = len(list(repliesarray))
-    except:
-        pass
-    if numofr != 0:
-        for repl in post.replies:
-            if repl.author != None and repl.author.name == 'PM_ME_Granter':  # TODO put your bot username here
-                done = True
-                continue
-    if done:
-        return True
-    else:
-        return False
-
-
 def post_reply(reply, post):
     global submissionCount
     try:
