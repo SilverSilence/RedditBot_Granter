@@ -1,35 +1,10 @@
 import urllib
-import requests
 import praw
 import time
 import config
 import re
-import urljoin
 from selenium import webdriver
 import collections
-import datetime
-
-def is_summon_chain(post):
-    if not post.is_root:
-        parent_comment_id = post.parent_id
-        parent_comment = r.get_info(thing_id=parent_comment_id)
-        if parent_comment.author != None and str(
-                parent_comment.author.name) == 'PM_ME_Granter':  # TODO put your bot username here
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-def comment_limit_reached(post):
-    global submissioncount
-    count_of_this = int(float(submissioncount[str(post.submission.id)]))
-    if count_of_this > 4:  # TODO change the number accordingly. float("inf") for infinite (Caution!)
-        return True
-    else:
-        return False
-
 
 def is_already_done(post):
     done = False
@@ -51,10 +26,10 @@ def is_already_done(post):
 
 
 def post_reply(reply, post):
-    global submissioncount
+    global submissionCount
     try:
         a = post.reply(reply)
-        submissioncount[str(post.submission.id)] += 1
+        submissionCount[str(post.submission.id)] += 1
         return True
     except Exception as e:
         print("REPLY FAILED: %s @ %s" % (e, post.subreddit))
@@ -63,34 +38,21 @@ def post_reply(reply, post):
             # save_changing_variables()
         return False
 
-def get_images(soup):
-    images = [img for img in soup.findAll('img')]
-    print (str(len(images)) + " images found.")
-    print('Downloading images to current working directory.')
-    image_links = [each.get('src') for each in images]
-    for each in image_links:
-        print(each)
-        try:
-            filename = each.strip().split('/')[-1].strip()
-            src = urljoin(url, each)
-            print('Getting: ' + filename)
-            response = requests.get(src, stream=True)
-            # delay to avoid corrupted previews
-            time.sleep(1)
-            # with open(filename, 'wb') as out_file:
-            #     shutil.copyfileobj(response.raw, out_file)
-        except:
-            print('  An error occured. Continuing.')
-    print('Done.')
-
+def clean_search_terms(terms):
+    lower_terms = [t.lower() for t in terms]
+    for ban_t in BAN_TERMS:
+        if ban_t in lower_terms:
+            lower_terms.remove(ban_t)
+    return lower_terms
 
 def get_search_terms(username):
     regex = re.compile('^(pm_me_).+', re.IGNORECASE)
     result = regex.search(username)
-    if result == None:
+    if result is None:
         return []
     result = result.group(0)
     result = result.split("_")[2:] #cut pm_me
+    result = clean_search_terms(result)
     result = " ".join(result)
     result = result.replace("_", " ")
     return result
@@ -106,52 +68,89 @@ def bot_login():
 def contains_PmMe(username):
     regex = re.compile('^(pm_me_).+', re.IGNORECASE)
     matches = regex.search(username)
-    if matches != None:
-        return
+    if not matches is None:
+        return True
     return False
 
 def make_query(terms):
     return urllib.parse.urlencode({'q': terms})
 
+def check_all_comments(comments):
+    comments.replace_more(limit=0)
+    for comment in comments:
+        if len(comment.replies) > 0:
+            check_all_comments(comment.replies)
+        else:
+            attempt_to_reply(comment)
+
+def attempt_to_reply(comment):
+    if comment.body == "!GrantPM":
+        print("Found a Comment!")
+        cm_parent = comment.parent()
+        if can_reply(comment):
+            print("About to comment.")
+            terms = get_search_terms(cm_parent.author.name)
+            query = make_query(terms)
+            src = get_image_src("{0}{1}".format(BING, query))
+            if src is None:
+                print("No pic found for terms: " + terms)
+                return
+            content = build_reply_string(src, terms)
+            post_reply(content, comment)
+            authors.append(comment.author.name)
+            print("Comment successful.")
+        else:
+            print("Could not reply.")
+
+def can_reply(comment):
+    if not comment.author is None:
+        author_name = comment.author.name
+        if author_name == "PM_ME_Granter":
+            return False
+        return (not author_name in authors) and contains_PmMe(comment.author.name) and not already_replied(comment)
+    return False
+
+def build_reply_string(src, terms):
+    return "Your wish shall be granted! [Here]({0}) you find what you desire: {1}.\nI'm a bot and still in development.".format(src, terms)
+
 def run_bot(r):
-    to_today = datetime.datetime.now().timestamp()
-    from_yesterday = to_today - 24 * 60 * 60 * 60
-    sub = r.subreddit("all").top("day")
+    sub = r.subreddit("testabot").new()
     for submission in sub:
         submission.comments.replace_more(limit=0)
+        check_all_comments(submission.comments)
         for comment in submission.comments.list():
-            if comment.body == "!GrantPM":
-                print("Found a Comment in " + submission.title)
-                cm_parent = comment.parent()
-                if cm_parent.author != None:
-                    print("About to comment.")
-                    terms = get_search_terms(cm_parent.author.name)
-                    query = make_query(terms)
-                    src = get_image_src("{0}{1}".format(BING, query))
-                    content = "Your wish shall be granted! [Here]({0}) you find what you desire: {1}.".format(src, terms)
-                    post_reply(content, cm_parent) #Doesn't comment if you already have
-                    print("Comment succesful.")
-        print("Done with comments in: " + submission.title)
-    print("Done with sumbission stream.")
+            attempt_to_reply(comment)
+        print("Done checking comments in post: " + submission.title)
+    print("Done with submission stream.")
+
+def already_replied(comment):
+    for child in comment.replies:
+        if (not child.author is None) and child.author.name == "PM_ME_Granter":
+            return True
+    return False
 
 def get_image_src(url):
     WEBBROWSER.get(url)
     WEBBROWSER.find_element_by_id(BING_BUTTON_ID).click()
-    time.sleep(1)
+    time.sleep(2)
     detail_url = WEBBROWSER.find_elements_by_css_selector(".imgpt > a")
-    result = detail_url[0].get_attribute("href")
+    try:
+        result = detail_url[0].get_attribute("href")
+    except Exception:
+        return None
     WEBBROWSER.get(result)
-    time.sleep(1)
+    time.sleep(2)
     div_tag = WEBBROWSER.find_element_by_id(FOCUS_ID)
     img_tag = div_tag.find_element_by_css_selector('img')
-    time.sleep(1)
     return img_tag.get_attribute("src")
 
+BAN_TERMS = ["your", "ur", "pic", "pics", "pix", "dick", "nude", "nudes", "tit", "tits"]
 BING = "https://www.bing.com/images/search?"
 BING_BUTTON_ID = "sb_form_go"
 WEBBROWSER = webdriver.Chrome()
-FOCUS_ID = "iol_imw"
+FOCUS_ID = "mainImageWindow"
 r = bot_login()
-submissioncount = collections.Counter()
-while True:
-    run_bot(r)
+submissionCount = collections.Counter()
+authors = []
+# while True:
+run_bot(r)
